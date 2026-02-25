@@ -1,108 +1,94 @@
-# TaskManager Pro
+# Task Management System
 
-A production-ready Full Stack Task Management Application built with Next.js 14 (App Router), TypeScript, Prisma ORM, and PostgreSQL.
+### Project Overview
+A multi-user task management system providing secure persistence, search, and activity tracking. The system manages create, read, update, and delete (CRUD) operations for user tasks while enforcing strict data isolation and authentication boundaries.
 
-## 🚀 Features
+### System Architecture
+The application is built on the Next.js App Router framework. It implements a layered architecture to ensure separation of concerns:
+- Client Layer: React components managing state and UI.
+- API Layer: Request handlers responsible for input validation and HTTP responses.
+- Service Layer: Business logic encapsulated in standalone classes (AuthService, TaskService) to ensure testability and reuse.
+- Data Layer: Prisma ORM interfacing with a PostgreSQL database.
 
-- **Custom JWT Authentication**: Secure login/register with `jose` and `bcryptjs`.
-- **HTTP-only Cookies**: JWT stored securely with `SameSite=strict` and `Secure` flags.
-- **Task Management (CRUD)**: Create, Read, Update, and Delete tasks with ownership verification.
-- **Advanced Filtering**: Filter by status (Pending/Completed).
-- **Global Search**: Case-insensitive search across task titles.
-- **Server-side Pagination**: Optimized data fetching for performance.
-- **Rate Limiting**: Integrated middleware to prevent abuse.
-- **Premium UI**: Sleek dark-mode interface built with Tailwind CSS and Lucide icons.
-- **Validation**: Strict input validation using Zod.
+Authentication and authorization are managed through a centralized proxy layer (formerly middleware) that intercepts protected routes to verify session integrity before reaching the business logic.
 
-## 🛠️ Architecture
+### Authentication Design
+The system utilizes JSON Web Tokens (JWT) for stateless session management.
+- Token signing: Tokens are signed with HS256 using a server-side secret key.
+- Storage: Tokens are stored in a client-side HttpOnly cookie.
+- Configuration: Cookies are configured with SameSite=Strict and Secure flags.
+This design prevents Cross-Site Scripting (XSS) from accessing the token and mitigates Cross-Site Request Forgery (CSRF).
 
-The project follows a clean modular architecture:
+### Authorization Strategy
+Authorization is enforced through ownership validation at the service layer.
+- User Isolation: Every database query includes a userId filter derived from the verified JWT.
+- IDOR Prevention: Mutations (update/delete) perform a pre-check to ensure the resource belongs to the requesting user before modification.
+Database-level constraints and Prisma-managed relations ensure that mismatched records are unreachable.
 
-- `app/api`: Route handlers following separation of concerns.
-- `services/`: Business logic layer.
-- `controllers/`: (Merged into API routes for Next.js convention, calling services).
-- `lib/`: Shared utilities (auth, prisma, exceptions, validations).
-- `components/`: Reusable UI components.
-- `middleware.ts`: Centralized auth protection and rate limiting.
+### API Design
+Endpoints return structured JSON responses with appropriate HTTP status codes.
 
-## 📦 Tech Stack
+- POST /api/auth/register: User account creation.
+- POST /api/auth/login: Session initiation.
+- GET /api/tasks: Paginated task retrieval with search (`search=`) and filter (`status=`) support.
+- POST /api/tasks: Resource creation.
+- PUT /api/tasks/{id}: Resource modification.
+- DELETE /api/tasks/{id}: Resource removal.
 
-- **Framework**: Next.js 14
-- **Language**: TypeScript
-- **Database**: PostgreSQL (Supabase/Local)
-- **ORM**: Prisma
-- **Auth**: Custom JWT (jose)
-- **Styling**: Tailwind CSS
-- **Icons**: Lucide React
-- **Validation**: Zod
-- **Notifications**: Sonner
+Example Request: `GET /api/tasks?page=1&limit=10&status=PENDING`
+Example Response:
+```json
+{
+  "tasks": [...],
+  "pagination": { "total": 25, "totalPages": 3, "page": 1 }
+}
+```
 
-## 🚦 Getting Started
+### Database Schema
+The schema is defined in PostgreSQL and managed through Prisma.
 
-1. **Clone and Install**:
-   ```bash
-   npm install
-   ```
+Model: User
+- id (UUID, PK)
+- email (String, Unique)
+- password (Hashed)
+- tasks (Relation)
 
-2. **Environment Variables**:
-   Create a `.env` file in the root:
-   ```env
-   DATABASE_URL="postgresql://user:password@localhost:5432/db"
-   JWT_SECRET="your-strong-secret"
-   NODE_ENV="development"
-   ```
+Model: Task
+- id (UUID, PK)
+- title (String)
+- description (String, Optional)
+- status (Enum: PENDING, COMPLETED)
+- userId (UUID, FK)
 
-3. **Database Setup**:
-   ```bash
-   npx prisma generate
-   npx prisma db push
-   ```
+Indexing:
+- Index on userId to optimize filtered retrieval.
+- Index on status to support high-performance dashboard filtering.
 
-4. **Run Development Server**:
-   ```bash
-   npm run dev
-   ```
+### Security Considerations
+- Password Security: Hashing is performed using bcrypt with 12 salt rounds.
+- SQL Injection: Mitigated by the ORM's use of parameterized queries for all database interactions.
+- XSS Mitigation: React's default escaping combined with HttpOnly cookies prevents typical injection vectors.
+- Environment Variables: Sensitive data is restricted to server-side logic and never exposed to the client bundle.
 
-## 🔒 Security Summary
+### Deployment Details
+- Hosting: Vercel.
+- Database: Supabase (PostgreSQL).
+- Session Secret: Managed via JWT_SECRET environment variable.
+- Production Flags: Cookies are restricted to HTTPS through the Secure flag in production environments.
 
-- **SQL Injection**: Prevented by Prisma's parameterized queries.
-- **XSS**: Next.js native protection and sanitized outputs.
-- **CSRF**: Mitigated by SameSite=Strict cookies.
-- **Rate Limiting**: Basic in-memory implementation in middleware.
-- **Auth**: Passwords hashed with bcrypt (salt rounds: 12).
+### Local Development Setup
+1. Install dependencies:
+   `npm install`
+2. Configure environment:
+   Create a .env file with DATABASE_URL, JWT_SECRET, and NODE_ENV.
+3. Synchronize database schema:
+   `npx prisma db push`
+4. Generate client:
+   `npx prisma generate`
+5. Start development server:
+   `npm run dev`
 
-## 📄 API Documentation
-
-- `POST /api/auth/register`: Register a new user.
-- `POST /api/auth/login`: Login and receive auth cookie.
-- `GET /api/auth/me`: Get current authenticated user.
-- `GET /api/tasks`: List user tasks (supports `page`, `limit`, `status`, `search`).
-- `POST /api/tasks`: Create a new task.
-- `PUT /api/tasks/[id]`: Update task title, description, or status.
-- `DELETE /api/tasks/[id]`: Delete a specific task.
-
-## 🔑 Environment Variables
-
-To run this project, you will need to add the following environment variables to your `.env` file:
-
-- `DATABASE_URL`: Your PostgreSQL connection string (Supabase recommended).
-- `JWT_SECRET`: A long, random string used to sign your JSON Web Tokens.
-- `NODE_ENV`: Set to `development` during local testing and `production` when deploying.
-
-## 🔒 JWT Authentication Flow
-
-This application implements a secure, custom JWT flow:
-
-1.  **Registration/Login**: User submits credentials to the server.
-2.  **Verification**: For login, `AuthService` compares the password against the bcrypt hash.
-3.  **Token Generation**: Upon success, a JWT is signed using `jose` with a 24-hour expiration.
-4.  **Cookie Attachment**: The token is sent back to the browser in an `auth-token` cookie with the following flags:
-    -   `HttpOnly`: Prevents client-side scripts from accessing the token (XSS protection).
-    -   `Secure`: Ensures the cookie is only sent over HTTPS (In production).
-    -   `SameSite=Strict`: Protects against Cross-Site Request Forgery (CSRF).
-5.  **Middleware Authorization**: For every protected request, `middleware.ts` intercepts the request, verifies the JWT signature, and identifies the user.
-6.  **Context**: The verified `userId` is then used in the Service layer to ensure multi-user isolation (IDOR protection).
-
----
-
-Built with ❤️ by your AI Coding Assistant.
+### Design Tradeoffs
+1. Rate Limiting: An in-memory store is used in the proxy layer for simplicity. In a distributed production environment, this would be replaced with a Redis-backed store to maintain consistency across container instances.
+2. Soft Deletes: The current implementation performs hard deletes. Systems usually implement soft deletes to allow for data recovery.
+3. Password Reset: For the scope of this implementation, password recovery flows were omitted to focus on core authentication and CRUD security.
