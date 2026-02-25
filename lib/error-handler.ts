@@ -21,7 +21,7 @@ export function withErrorHandler(handler: Function) {
 
             if (error instanceof ZodError) {
                 return NextResponse.json(
-                    { message: "Validation failed", errors: error.errors },
+                    { message: "Validation failed", errors: error.issues },
                     { status: 400 }
                 );
             }
