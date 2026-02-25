@@ -1,94 +1,99 @@
-# Task Management System
+# Task Management System Technical Documentation
 
-### Project Overview
-A multi-user task management system providing secure persistence, search, and activity tracking. The system manages create, read, update, and delete (CRUD) operations for user tasks while enforcing strict data isolation and authentication boundaries.
+### 1. System Overview
+The Task Management System is a vertically integrated full-stack application designed for secure personal task orchestration. The system provides authenticated users with interfaces for task lifecycle management, including persistence, categorization, and full-text search. The functional scope is restricted to single-user ownership models, ensuring data isolation and high-integrity state transitions.
 
-### System Architecture
-The application is built on the Next.js App Router framework. It implements a layered architecture to ensure separation of concerns:
-- Client Layer: React components managing state and UI.
-- API Layer: Request handlers responsible for input validation and HTTP responses.
-- Service Layer: Business logic encapsulated in standalone classes (AuthService, TaskService) to ensure testability and reuse.
-- Data Layer: Prisma ORM interfacing with a PostgreSQL database.
+### 2. Architectural Design
+The system utilizes a modular architecture built on the Next.js App Router framework.
+- **High-Level Architecture**: Follows a layered pattern separating the presentation layer from the business logic and persistence layers.
+- **Separation of Concerns**: UI components are decoupled from data fetching logic. API routes act as controllers, delegating complex operations to a dedicated Service Layer.
+- **Request Lifecycle**: Incoming requests are intercepted by a global Proxy Layer for authentication verification and rate limiting. Validated requests are routed to API handlers, processed through services, and persisted via an ORM.
+- **Service-Layer Responsibilities**: Standalone service classes (AuthService, TaskService) encapsulate business rules, ensuring that API handlers remain thin and focused on HTTP concerns.
+- **Database Interaction Model**: Implements a repository-style pattern through Prisma ORM, utilizing type-safe queries and transaction management.
 
-Authentication and authorization are managed through a centralized proxy layer (formerly middleware) that intercepts protected routes to verify session integrity before reaching the business logic.
+### 3. Authentication Mechanism
+The system implements a stateless authentication model using JSON Web Tokens (JWT).
+- **JWT Signing Process**: Tokens are signed using the HS256 algorithm. The payload contains the unique user identifier and issuance timestamp.
+- **Token Verification**: Verification occurs at the edge via a global proxy. Tokens are validated against a server-side secret prior to downstream routing.
+- **Cookie Configuration**:
+  - `HttpOnly`: Mitigates unauthorized access via client-side scripts.
+  - `Secure`: Ensures transmission occurs exclusively over encrypted channels (HTTPS).
+  - `SameSite=Strict`: Provides defense-in-depth against Cross-Site Request Forgery (CSRF).
+- **Expiration Handling**: Tokens carry a 24-hour Time-to-Live (TTL). Expired tokens trigger immediate session termination at the proxy layer.
+- **Security Reasoning**: This implementation prioritizes resistance to common web vulnerabilities while maintaining the performance benefits of stateless sessions.
 
-### Authentication Design
-The system utilizes JSON Web Tokens (JWT) for stateless session management.
-- Token signing: Tokens are signed with HS256 using a server-side secret key.
-- Storage: Tokens are stored in a client-side HttpOnly cookie.
-- Configuration: Cookies are configured with SameSite=Strict and Secure flags.
-This design prevents Cross-Site Scripting (XSS) from accessing the token and mitigates Cross-Site Request Forgery (CSRF).
+### 4. Authorization Model
+The system enforces a strict ownership-based authorization model.
+- **Ownership Enforcement**: Every mutation request is validated against the authenticated user identifier.
+- **IDOR Prevention**: Application logic prevents Insecure Direct Object Reference (IDOR) by explicitly checking resource ownership before execution of PUT or DELETE operations.
+- **Query-Level User Isolation**: Database queries for data retrieval are scoped by the `userId` in the `WHERE` clause, ensuring that users can neither view nor modify records belonging to other entities.
+- **Service-Layer Validation**: Authorization checks are performed within the Service Layer, providing a centralized enforcement point and reducing the risk of accidental exposure in the API layer.
 
-### Authorization Strategy
-Authorization is enforced through ownership validation at the service layer.
-- User Isolation: Every database query includes a userId filter derived from the verified JWT.
-- IDOR Prevention: Mutations (update/delete) perform a pre-check to ensure the resource belongs to the requesting user before modification.
-Database-level constraints and Prisma-managed relations ensure that mismatched records are unreachable.
+### 5. API Design Specification
+The API follows RESTful principles, utilizing standard HTTP methods and status codes.
 
-### API Design
-Endpoints return structured JSON responses with appropriate HTTP status codes.
+#### Endpoints
+- `POST /api/auth/register`: User credential registration. Returns 201 on success.
+- `POST /api/auth/login`: Identity verification and session issuance. Returns 200 on success.
+- `GET /api/tasks`: Retrieval of scoped tasks. Supports `page`, `limit`, `status`, and `search` parameters.
+- `POST /api/tasks`: Persistence of a new task entity.
+- `PUT /api/tasks/{id}`: Modification of an existing task entity.
+- `DELETE /api/tasks/{id}`: Removal of a task entity from the persistent store.
 
-- POST /api/auth/register: User account creation.
-- POST /api/auth/login: Session initiation.
-- GET /api/tasks: Paginated task retrieval with search (`search=`) and filter (`status=`) support.
-- POST /api/tasks: Resource creation.
-- PUT /api/tasks/{id}: Resource modification.
-- DELETE /api/tasks/{id}: Resource removal.
-
-Example Request: `GET /api/tasks?page=1&limit=10&status=PENDING`
-Example Response:
+#### Error Handling
+The system implements structured JSON error responses:
 ```json
 {
-  "tasks": [...],
-  "pagination": { "total": 25, "totalPages": 3, "page": 1 }
+  "message": "Validation failed",
+  "errors": [ ... ]
 }
 ```
+Status codes are mapped objectively: `401` for unauthenticated requests, `403` for unauthorized access attempts, and `400` for validation failures.
 
-### Database Schema
-The schema is defined in PostgreSQL and managed through Prisma.
+### 6. Data Model and Indexing Strategy
+The persistence layer is modeled in PostgreSQL.
 
-Model: User
-- id (UUID, PK)
-- email (String, Unique)
-- password (Hashed)
-- tasks (Relation)
+#### User Schema
+- `id`: UUID (Primary Key)
+- `email`: String (Unique Index)
+- `password`: String (Bcrypt Hash)
 
-Model: Task
-- id (UUID, PK)
-- title (String)
-- description (String, Optional)
-- status (Enum: PENDING, COMPLETED)
-- userId (UUID, FK)
+#### Task Schema
+- `id`: UUID (Primary Key)
+- `title`: String
+- `description`: Text (Optional)
+- `status`: Enum (PENDING, COMPLETED)
+- `userId`: UUID (Foreign Key)
 
-Indexing:
-- Index on userId to optimize filtered retrieval.
-- Index on status to support high-performance dashboard filtering.
+#### Indexing Rationale
+- **userId Index**: Optimized for high-concurrency read operations scoped to individual users.
+- **status Index**: Facilitates performant filtering for dashboard metrics and status-based aggregation.
+- **Composite Considerations**: The schema is designed to scale with B-Tree indexing on primary and foreign keys, ensuring sub-millisecond query performance on standard workloads.
 
-### Security Considerations
-- Password Security: Hashing is performed using bcrypt with 12 salt rounds.
-- SQL Injection: Mitigated by the ORM's use of parameterized queries for all database interactions.
-- XSS Mitigation: React's default escaping combined with HttpOnly cookies prevents typical injection vectors.
-- Environment Variables: Sensitive data is restricted to server-side logic and never exposed to the client bundle.
+### 7. Security Controls
+- **Password Hashing**: Utilizes Bcrypt with a work factor of 12 salt rounds, ensuring resistance to brute-force and rainbow table attacks.
+- **SQL Injection Mitigation**: Prevented through the use of parameterized queries and type-safe abstraction via Prisma.
+- **Input Validation**: Enforced via Zod schemas at the API entry point, validating data types, constraints, and formats.
+- **XSS Prevention**: Mitigated through React’s automatic escaping and the enforcement of HttpOnly cookie flags.
+- **Environment Handling**: Configuration is strictly managed through encrypted environment variables, with logical separation between development and production secrets.
 
-### Deployment Details
-- Hosting: Vercel.
-- Database: Supabase (PostgreSQL).
-- Session Secret: Managed via JWT_SECRET environment variable.
-- Production Flags: Cookies are restricted to HTTPS through the Secure flag in production environments.
+### 8. Deployment Architecture
+- **Hosting Environment**: Vercel (Serverless).
+- **Database Infrastructure**: Supabase (PostgreSQL with PgBouncer for connection pooling).
+- **Configuration Management**: Secrets are stored in Vercel’s Environment Variable store and injected at runtime.
+- **Migration Strategy**: Schema evolution is managed via Prisma Migrations, ensuring consistent state across deployment environments.
 
-### Local Development Setup
-1. Install dependencies:
-   `npm install`
-2. Configure environment:
-   Create a .env file with DATABASE_URL, JWT_SECRET, and NODE_ENV.
-3. Synchronize database schema:
-   `npx prisma db push`
-4. Generate client:
-   `npx prisma generate`
-5. Start development server:
-   `npm run dev`
+### 9. Operational Considerations
+- **Scalability**: The system is vertically scalable through database tiering and horizontally scalable through serverless function execution.
+- **Limitations**: In-memory rate limiting is currently utilized. In a production environment with high traffic, this would be migrated to a distributed Redis store.
+- **Enterprise Readiness**: For enterprise-scale deployment, the system would require the integration of a centralized logging provider (e.g., Axiom, Datadog) and more granular RBAC (Role-Based Access Control) models.
 
-### Design Tradeoffs
-1. Rate Limiting: An in-memory store is used in the proxy layer for simplicity. In a distributed production environment, this would be replaced with a Redis-backed store to maintain consistency across container instances.
-2. Soft Deletes: The current implementation performs hard deletes. Systems usually implement soft deletes to allow for data recovery.
-3. Password Reset: For the scope of this implementation, password recovery flows were omitted to focus on core authentication and CRUD security.
+### 10. Local Development and Reproducibility
+Prerequisites: Node.js 18+, PostgreSQL.
+
+#### Setup Procedure
+1. Clone the repository.
+2. Install dependencies: `npm install`.
+3. Configure `.env` with `DATABASE_URL`, `JWT_SECRET`, and `NODE_ENV`.
+4. Initialize database: `npx prisma db push`.
+5. Run development server: `npm run dev`.
