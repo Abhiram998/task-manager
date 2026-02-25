@@ -26,8 +26,8 @@ function isRateLimited(ip: string) {
     return rateData.count > maxRequests;
 }
 
-export async function middleware(request: NextRequest) {
-    const ip = request.ip || "anonymous";
+export async function proxy(request: NextRequest) {
+    const ip = request.headers.get("x-forwarded-for") || "anonymous";
 
     // 1. Rate Limiting
     if (isRateLimited(ip)) {
